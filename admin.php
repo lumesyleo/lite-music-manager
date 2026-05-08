@@ -26,6 +26,7 @@ define('DEFAULT_ARTIST', '未知歌手');
 define('DEFAULT_URL', './localmedia/default.mp3');
 define('PARSE_SEPARATOR', '-');
 define('PARSE_FORMAT', 'title_artist');
+define('USE_FILENAME_AS_TITLE', true); 
 // 静态资源管理
 define('ASSET_FAVICON', './assets/favicon.png');
 define('ASSET_BOOTSTRAP_CSS', 'https://unpkg.com/bootstrap@5.3.3/dist/css/bootstrap.min.css');
@@ -146,15 +147,17 @@ if (isset($_GET['ajax'])) {
             }
             $resp = ['success'=>true, 'msg'=>"已删除 {$count} 项"];
         } elseif ($action === 'scan_files') {
+            $target_dir = $_GET['target_dir'] ?? '';
             $files = ['audio' => [], 'lrc' => [], 'cover' => []];
-            $root = realpath(FM_ROOT);
-            if ($root) {
-                $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, RecursiveDirectoryIterator::SKIP_DOTS));
+            $scan_dir = fm_sanitize_path($target_dir);
+            if ($scan_dir) {
+                // 使用 DirectoryIterator 仅扫描当前目录，不进入子目录
+                $iterator = new DirectoryIterator($scan_dir);
                 foreach ($iterator as $file) {
                     if ($file->isFile()) {
                         $ext = strtolower(pathinfo($file->getFilename(), PATHINFO_EXTENSION));
-                        $rel = substr($file->getPathname(), strlen($root) + 1);
-                        $rel = str_replace('\\', '/', $rel);
+                        // 构建相对于 FM_ROOT 的路径
+                        $rel = $target_dir === '' ? $file->getFilename() : rtrim($target_dir, '/\\') . '/' . $file->getFilename();
                         if (in_array($ext, ['mp3', 'wav', 'flac', 'ogg', 'm4a'])) $files['audio'][] = $rel;
                         elseif ($ext === 'lrc') $files['lrc'][] = $rel;
                         elseif (in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'])) $files['cover'][] = $rel;
@@ -169,7 +172,8 @@ if (isset($_GET['ajax'])) {
                 'default_cover' => DEFAULT_COVER, 'default_lrc' => DEFAULT_LRC,
                 'default_title' => DEFAULT_TITLE, 'default_artist' => DEFAULT_ARTIST,
                 'default_url' => DEFAULT_URL,
-                'parse_separator' => PARSE_SEPARATOR, 'parse_format' => PARSE_FORMAT
+                'parse_separator' => PARSE_SEPARATOR, 'parse_format' => PARSE_FORMAT,
+                'use_filename_as_title' => USE_FILENAME_AS_TITLE
             ];
             $saved = file_exists(SETTINGS_FILE) ? json_decode(file_get_contents(SETTINGS_FILE), true) : [];
             $resp = ['success'=>true, 'data'=>array_merge($defaults, $saved ?: [])];
@@ -308,6 +312,19 @@ $fm_items = array_diff(scandir($fm_path), ['.', '..']); natcasesort($fm_items);
 $fm_all = array_merge(array_filter($fm_items, fn($i) => is_dir($fm_path . '/' . $i)), array_filter($fm_items, fn($i) => is_file($fm_path . '/' . $i)));
 $fm_parent = $fm_cur === '' ? '' : implode('/', array_slice(explode('/', trim($fm_cur, '/')), 0, -1));
 
+// ========== 智能添加 目录选择 ==========
+$smart_add_dirs = [['name' => '根目录', 'path' => '']];
+$root_real = realpath(FM_ROOT);
+if ($root_real) {
+    $s_items = array_diff(scandir($root_real), ['.', '..']);
+    natcasesort($s_items);
+    foreach ($s_items as $item) {
+        if (is_dir($root_real . '/' . $item)) {
+            $smart_add_dirs[] = ['name' => $item, 'path' => $item];
+        }
+    }
+}
+
 // ========== API 预览数据 ==========
 $api_list = [];
 foreach ($playlist_files as $f) {
@@ -351,8 +368,17 @@ foreach ($playlist_files as $f) {
 			<div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
 				<h5 class="mb-0"><i class="bi bi-music-note-beam me-2"></i>歌单管理</h5>
 				<form method="get" class="d-flex gap-2 m-0"><input type="hidden" name="tab" value="playlist">
+
+                    <select id="smartAddDir" class="form-select form-select-sm" style="width: auto; display: inline-block;">
+                        <?php foreach ($smart_add_dirs as $dir): ?>
+                        <option value="<?php echo esc_html($dir['path']); ?>"><?php echo esc_html($dir['name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+
 					<select name="playlist" id="playlistSelect" class="form-select form-select-sm" onchange="this.form.submit()"><?php foreach ($playlists as $pl): ?><option value="<?php echo esc_html($pl) ?>" <?php echo $pl===$selected?'selected':'' ?>><?php echo esc_html($pl) ?></option>
-						<?php endforeach; ?></select>
+						<?php endforeach; ?>
+                    </select>
+
 				</form>
 				<div class="d-flex flex-wrap gap-2 align-items-center">
 					<button class="btn btn-sm btn-outline-success" onclick="createPlaylist()"><i class="bi bi-plus-lg"></i> 新建歌单</button>
@@ -360,7 +386,9 @@ foreach ($playlist_files as $f) {
 					<button class="btn btn-sm btn-outline-danger" onclick="deletePlaylist('<?php echo esc_html($selected) ?>')" <?php echo count($playlists)<=1?'disabled title="至少保留一个歌单"':''?>><i class="bi bi-trash"></i> 删除歌单</button>
 					<div class="vr d-none d-md-block"></div>
 					<button class="btn btn-sm btn-outline-success" onclick="openAddModal()"><i class="bi bi-plus-lg"></i> 添加曲目</button>
-					<button class="btn btn-sm btn-outline-primary" onclick="autoAddTracks()"><i class="bi bi-lightning-charge"></i> 智能添加</button>
+
+                    <button class="btn btn-sm btn-outline-primary" onclick="autoAddTracks()"><i class="bi bi-lightning-charge"></i> 智能添加</button>
+
 					<button class="btn btn-sm btn-outline-danger" onclick="batchDelete()"><i class="bi bi-trash"></i> 批量删曲</button>
 					<div class="vr d-none d-md-block"></div>
 					<button class="btn btn-sm btn-outline-secondary" id="sortToggleBtn" onclick="toggleSortMode()"><i class="bi bi-arrow-down-up"></i> 顺序编辑</button>
@@ -536,11 +564,22 @@ foreach ($playlist_files as $f) {
 					<h6 class="border-bottom pb-2 mt-4">智能解析规则</h6>
 					<div class="row g-3 mb-3">
 						<div class="col-md-4"><label class="form-label">分隔符</label><input type="text" name="parse_separator" class="form-control"></div>
-						<div class="col-md-4"><label class="form-label">文件名格式</label><select name="parse_format" class="form-select">
+						<div class="col-md-4">
+                            <label class="form-label">文件名格式</label>
+                            <select name="parse_format" class="form-select">
 								<option value="title_artist">曲名 - 艺术家</option>
 								<option value="artist_title">艺术家 - 曲名</option>
-							</select></div>
+							</select>
+                        </div>
 					</div>
+                    <div class="col-md-12 mt-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="use_filename_as_title" id="useFilenameAsTitle" value="1" checked>
+                            <label class="form-check-label" for="useFilenameAsTitle">
+                                文件名不符合解析规范时，<b>曲名直接使用文件名</b>（关闭则显示“未知曲目”，重复时自动追加序号）
+                            </label>
+                        </div>
+                    </div>
 					<button type="button" class="btn btn-primary" onclick="saveSettings()"><i class="bi bi-save"></i> 保存设置</button>
 				</form>
 			</div> <?php endif; ?>

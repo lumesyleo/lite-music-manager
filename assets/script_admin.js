@@ -218,10 +218,14 @@ function savePlaylist() {
 // ========== 智能添加 ==========
 async function autoAddTracks() {
     try {
-        const res = await fetch(`?ajax=1&action=scan_files`).then(r=>r.json());
+        const dirSelect = document.getElementById('smartAddDir');
+        const targetDir = dirSelect ? dirSelect.value : '';
+        
+        const res = await fetch(`?ajax=1&action=scan_files&target_dir=${encodeURIComponent(targetDir)}`).then(r => r.json());
         if (!res.success) return showToast(res.msg, 'danger');
-        const {audio, lrc, cover} = res.data;
+        const { audio, lrc, cover } = res.data;
         if (!audio.length) return showToast('未找到音频文件', 'warning');
+        
         const newTracks = [];
         audio.forEach(aPath => {
             const base = aPath.replace(/\.[^/.]+$/, "");
@@ -233,8 +237,18 @@ async function autoAddTracks() {
             let artist = currentSettings.default_artist || '未知歌手';
             const sep = currentSettings.parse_separator || '-';
             const fmt = currentSettings.parse_format || 'title_artist';
-            const parts = fileName.split(sep).map(s=>s.trim());
-            if (parts.length >= 2) [name, artist] = fmt === 'title_artist' ? [parts[0], parts[1]] : [parts[1], parts[0]];
+            const parts = fileName.split(sep).map(s => s.trim());
+
+            if (parts.length >= 2) {
+                [name, artist] = fmt === 'title_artist' ? [parts[0], parts[1]] : [parts[1], parts[0]];
+            } else {
+                // 不符合分隔符规则时，按新设置处理
+                if (currentSettings.use_filename_as_title !== false) {
+                    name = fileName; // 默认直接使用文件名
+                } else {
+                    name = currentSettings.default_title || '未知曲目'; // 关闭时使用默认占位符，在重复时自动追加序号
+                }
+            }
             
             newTracks.push({
                 name, artist,
@@ -244,7 +258,7 @@ async function autoAddTracks() {
             });
         });
         await handleDuplicateBatch(newTracks);
-    } catch(e) { showToast('智能添加失败: ' + e.message, 'danger'); }
+    } catch (e) { showToast('智能添加失败: ' + e.message, 'danger'); }
 }
 
 // ========== JSON 导入导出 ==========
@@ -383,6 +397,7 @@ async function loadSettings() {
     f.default_url.value = currentSettings.default_url || ''; f.default_title.value = currentSettings.default_title || '';
     f.default_artist.value = currentSettings.default_artist || ''; f.parse_separator.value = currentSettings.parse_separator || '';
     f.parse_format.value = currentSettings.parse_format || 'title_artist';
+    f.use_filename_as_title.checked = currentSettings.use_filename_as_title !== false;
 }
 function saveSettings() {
     const f = document.getElementById('settingsForm');
@@ -390,7 +405,8 @@ function saveSettings() {
         playlist_dir: f.playlist_dir.value.trim() || './playlists', localmedia_dir: f.localmedia_dir.value.trim() || './localmedia',
         default_cover: f.default_cover.value.trim(), default_lrc: f.default_lrc.value.trim(), default_url: f.default_url.value.trim(),
         default_title: f.default_title.value.trim(), default_artist: f.default_artist.value.trim(),
-        parse_separator: f.parse_separator.value.trim(), parse_format: f.parse_format.value
+        parse_separator: f.parse_separator.value.trim(), parse_format: f.parse_format.value,
+        use_filename_as_title: f.use_filename_as_title.checked 
     };
     fetch(`?ajax=1&action=save_settings`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)})
     .then(r=>r.json()).then(res=>{ if(res.success) { currentSettings = data; showToast(res.msg); } else showToast(res.msg, 'danger'); });
