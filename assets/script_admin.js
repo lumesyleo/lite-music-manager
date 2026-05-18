@@ -397,16 +397,24 @@ async function loadSettings() {
     f.default_url.value = currentSettings.default_url || ''; f.default_title.value = currentSettings.default_title || '';
     f.default_artist.value = currentSettings.default_artist || ''; f.parse_separator.value = currentSettings.parse_separator || '';
     f.parse_format.value = currentSettings.parse_format || 'title_artist';
-    f.use_filename_as_title.checked = currentSettings.use_filename_as_title !== false;
+    f.use_filename_as_title.checked = currentSettings.use_filename_as_title !== false;    f.api_server_name.value = currentSettings.api_server_name || 'mymusic';
+    f.song_dedup_show_all.checked = currentSettings.song_dedup_show_all === true;
 }
 function saveSettings() {
     const f = document.getElementById('settingsForm');
     const data = {
-        playlist_dir: f.playlist_dir.value.trim() || './playlists', localmedia_dir: f.localmedia_dir.value.trim() || './localmedia',
-        default_cover: f.default_cover.value.trim(), default_lrc: f.default_lrc.value.trim(), default_url: f.default_url.value.trim(),
-        default_title: f.default_title.value.trim(), default_artist: f.default_artist.value.trim(),
-        parse_separator: f.parse_separator.value.trim(), parse_format: f.parse_format.value,
-        use_filename_as_title: f.use_filename_as_title.checked 
+        playlist_dir: f.playlist_dir.value.trim() || './playlists',
+        localmedia_dir: f.localmedia_dir.value.trim() || './localmedia',
+        default_cover: f.default_cover.value.trim(),
+        default_lrc: f.default_lrc.value.trim(),
+        default_url: f.default_url.value.trim(),
+        default_title: f.default_title.value.trim(),
+        default_artist: f.default_artist.value.trim(),
+        parse_separator: f.parse_separator.value.trim(),
+        parse_format: f.parse_format.value,
+        use_filename_as_title: f.use_filename_as_title.checked,
+        api_server_name: f.api_server_name.value.trim() || 'mymusic',
+        song_dedup_show_all: f.song_dedup_show_all.checked
     };
     fetch(`?ajax=1&action=save_settings`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data)})
     .then(r=>r.json()).then(res=>{ if(res.success) { currentSettings = data; showToast(res.msg); } else showToast(res.msg, 'danger'); });

@@ -68,9 +68,9 @@
 
 ## 更新记录
 
-0.2.2
-- 增加设置项：文件名不符合解析规范时，曲名直接使用文件名
-- 为“智能添加”功能增加目录选项，可以选择非自动获取非根目录中的资源
+0.3.0
+- 更改 API 格式，兼容[Meting-api](https://github.com/metowolf/Meting-api)。调用格式为`https://example.com/api.php?server=mymusic&type=playlist&id=xxx`。其中`server`可在系统设置页面中调整，`type`目前有`playlist`和`song`两种参数支持，id为歌单名称（不需要扩展名）或单曲名称（需要扩展名）。
+- 优化`api.php`，将重点放在路由上
 
 0.2.1
 - 修复文件管理器的批量上传问题

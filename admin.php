@@ -1,9 +1,9 @@
 <?php
 // ================= 配置区域 =================
 $_s_path = __DIR__ . '/settings.json';
-$_s_data = file_exists($_s_path) ? json_decode(file_get_contents($_s_path), true) : [];
-$def_pl = $_s_data['playlist_dir'] ?? __DIR__ . '/playlists';
-$def_as = $_s_data['localmedia_dir'] ?? __DIR__ . '/localmedia';
+$settings = file_exists($_s_path) ? json_decode(file_get_contents($_s_path), true) : []; // 与下文表单保持一致
+$def_pl = $settings['playlist_dir'] ?? __DIR__ . '/playlists';
+$def_as = $settings['localmedia_dir'] ?? __DIR__ . '/localmedia';
 // 统一转换为绝对路径
 if (preg_match('/^\.\//', $def_pl)) $def_pl = __DIR__ . '/' . substr($def_pl, 2);
 if (preg_match('/^\.\//', $def_as)) $def_as = __DIR__ . '/' . substr($def_as, 2);
@@ -173,7 +173,9 @@ if (isset($_GET['ajax'])) {
                 'default_title' => DEFAULT_TITLE, 'default_artist' => DEFAULT_ARTIST,
                 'default_url' => DEFAULT_URL,
                 'parse_separator' => PARSE_SEPARATOR, 'parse_format' => PARSE_FORMAT,
-                'use_filename_as_title' => USE_FILENAME_AS_TITLE
+                'use_filename_as_title' => USE_FILENAME_AS_TITLE,
+                'api_server_name' => 'mymusic',
+                'song_dedup_show_all' => false 
             ];
             $saved = file_exists(SETTINGS_FILE) ? json_decode(file_get_contents(SETTINGS_FILE), true) : [];
             $resp = ['success'=>true, 'data'=>array_merge($defaults, $saved ?: [])];
@@ -326,10 +328,17 @@ if ($root_real) {
 }
 
 // ========== API 预览数据 ==========
+$api_server = strtolower(trim($settings['api_server_name'] ?? 'mymusic'));
+$api_base   = (isset($_SERVER['HTTPS'])?'https':'http') . '://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/api.php';
 $api_list = [];
 foreach ($playlist_files as $f) {
-    $rel = substr($f, strlen(__DIR__) + 1); $rel = str_replace('\\', '/', $rel);
-    $api_list[] = ['name' => pathinfo($f, PATHINFO_FILENAME), 'url' => (isset($_SERVER['HTTPS'])?'https':'http') . '://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['PHP_SELF']) . '/api.php?url=./' . urlencode($rel)];
+    $pl_name = pathinfo($f, PATHINFO_FILENAME);
+    $rel_path = str_replace('\\', '/', substr($f, strlen(__DIR__) + 1));
+    $api_list[] = [
+        'name'       => $pl_name,
+        'meting_url' => $api_base . "?server={$api_server}&type=playlist&id=" . urlencode($pl_name),
+        'legacy_url' => $api_base . "?url=./" . urlencode($rel_path)
+    ];
 }
 ?>
 <!DOCTYPE html>
@@ -530,18 +539,42 @@ foreach ($playlist_files as $f) {
 								class="bi bi-download"></i> 批量下载</button></div>
 				</form>
 			</div>
-		</div> <?php elseif ($active_tab === 'api'): ?> <div class="card shadow-sm mb-4">
-			<div class="card-header">
-				<h5 class="mb-0">API 接口预览</h5>
-			</div>
-			<div class="card-body">
-				<div class="row g-3"> <?php foreach ($api_list as $api): ?><div class="col-12">
-						<div class="d-flex align-items-center gap-2 p-2 bg-light rounded"><span class="text-truncate flex-grow-1"><strong><?php echo esc_html($api['name']) ?>.json</strong><br><small class="text-muted"><?php echo esc_html($api['url']) ?></small></span><button
-								class="btn btn-sm btn-outline-primary copy-btn" data-url="<?php echo esc_html($api['url']) ?>">复制</button></div>
-					</div><?php endforeach; ?> <?php if (empty($api_list)): ?><p class="text-muted">暂无歌单文件</p><?php endif; ?> </div>
-				<hr>
-				<p class="small text-muted">调用示例：<code>fetch('API_URL').then(r=>r.json()).then(console.log)</code></p>
-			</div>
+        <?php elseif ($active_tab === 'api'): ?>
+        <div class="card shadow-sm mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">歌单 API 调用一览</h5>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-info small mb-3">
+                    调用格式：<code>https://example.com/api.php?server=<?php echo $api_server; ?>&amp;type=playlist&amp;id=xxx</code></br>
+                    <code>server</code>可在系统设置页面中调整，<code>type</code>目前有 playlist 和 song 两种选项，<code>id</code>为歌单名称（不需要扩展名）或单曲名称（需要扩展名）
+                </div>
+                <div class="row g-3">
+                <?php foreach ($api_list as $api): ?>
+                    <div class="col-12">
+                        <div class="d-flex align-items-center gap-2 p-2 bg-light rounded">
+                            <div class="flex-grow-1">
+                                <strong><?php echo esc_html($api['name']) ?>.json</strong><br>
+                                <small class="text-muted d-block mt-1"><code><?php echo esc_html($api['meting_url']) ?></code></small>
+                                <!--<small class="text-muted" style="font-size:0.8em">
+                                    APlayer: <code>meting:{server:'<?php echo $api_server; ?>',type:'playlist',id:'<?php echo esc_html($api['name']) ?>',api:'<?php echo $api_base; ?>'}</code>
+                                </small>-->
+                            </div>
+                            <button class="btn btn-sm btn-outline-primary copy-btn" data-url="<?php echo esc_html($api['meting_url']) ?>"><i class="bi bi-clipboard"></i></button>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+                <?php if (empty($api_list)): ?><p class="text-muted mb-0">暂无歌单</p><?php endif; ?>
+                </div>
+                <details class="small mt-3">
+                    <summary class="text-muted cursor-pointer">早期格式兼容（但不推荐继续使用）</summary>
+                    <div class="mt-2 p-2 bg-light rounded font-monospace small">
+                        <?php foreach ($api_list as $api): ?>
+                            <div class="mb-1"><?php echo esc_html($api['legacy_url']) ?></div>
+                        <?php endforeach; ?>
+                    </div>
+                </details>
+            </div>
 		</div> <?php elseif ($active_tab === 'settings'): ?> <div class="card shadow-sm mb-4">
 			<div class="card-header">
 				<h5 class="mb-0"><i class="bi bi-gear"></i> 系统设置</h5>
@@ -580,7 +613,21 @@ foreach ($playlist_files as $f) {
                             </label>
                         </div>
                     </div>
-					<button type="button" class="btn btn-primary" onclick="saveSettings()"><i class="bi bi-save"></i> 保存设置</button>
+                    <h6 class="border-bottom pb-2 mt-4">API 与去重配置</h6>
+					<div class="row g-3 mb-3">
+                        <div class="col-md-12">
+                            <label class="form-label">API 服务端名称</label>
+                            <input type="text" name="api_server_name" class="form-control" value="<?php echo esc_html($settings['api_server_name'] ?? 'mymusic') ?>">
+                            <small class="text-muted">模仿<a href="https://github.com/metowolf/Meting-api">Meting-api</a>的格式，此处为 server 字段，设置完后尽量不要再改了</small>
+                        </div>
+                    </div>
+                    <div class="col-md-12 mt-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="song_dedup_show_all" id="dedupShowAll" <?php echo ($settings['song_dedup_show_all'] ?? false) ? 'checked' : ''; ?>>
+                            <label class="form-check-label" for="dedupShowAll">单曲查询时显示所有重名曲目（关闭则仅保留层级最短/a-z靠前的一首）</label>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-primary" onclick="saveSettings()"><i class="bi bi-save"></i> 保存设置</button>
 				</form>
 			</div> <?php endif; ?>
 		</div>

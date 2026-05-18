@@ -1,183 +1,140 @@
 <?php
-// 先不在这里设置默认的 Content-Type
-// header('Content-Type: application/json; charset=utf-8');
-// 处理预检请求
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    exit(0);
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { exit(0); }
+
+$settings_file = __DIR__ . '/settings.json';
+$settings = file_exists($settings_file) ? json_decode(file_get_contents($settings_file), true) : [];
+$playlist_dir = realpath($settings['playlist_dir'] ?? __DIR__ . '/playlists') ?: __DIR__ . '/playlists';
+$configured_server = strtolower(trim($settings['api_server_name'] ?? 'mymusic'));
+
+function getBaseUrl() {
+    $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
+    return $protocol . '://' . $_SERVER['HTTP_HOST'] . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/\\');
 }
 
-// 检查是否提供了 url 参数
-if (!isset($_GET['url'])) {
-    // 没有提供 url 参数，列出当前目录及子目录下的所有 JSON 文件
-    // 在这里设置 HTML 的内容类型
-    header('Content-Type: text/html; charset=utf-8');
-?>
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>歌单列表</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 40px; background-color: #f5f5f5; }
-        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        h1 { color: #333; text-align: center; }
-        .file-list { list-style-type: none; padding: 0; }
-        .file-list li { padding: 10px; border-bottom: 1px solid #eee; }
-        .file-link { color: #007bff; text-decoration: none; font-weight: bold; }
-        .file-link:hover { text-decoration: underline; }
-        .api-info { margin-top: 20px; padding: 15px; background-color: #e7f3ff; border-radius: 5px; }
-        .copy-btn {
-            background-color: #e7e7e7;
-            border: none;
-            padding: 2px 6px;
-            border-radius: 4px;
-            text-align: center;
-            text-decoration: none;
-            display: inline-block;
+function normalizePaths(&$item, $base_url) {
+    foreach (['url', 'pic', 'lrc'] as $field) {
+        if (isset($item[$field]) && !preg_match('/^https?:\/\//', $item[$field])) {
+            $item[$field] = $base_url . '/' . ltrim($item[$field], './');
         }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>可用歌单配置文件</h1>
-        <p>点击下方链接可直接访问对应歌单的 API 数据。</p>
-        <ul class="file-list">
-        <?php
-        $base_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['SCRIPT_NAME'];
+    }
+    $item = array_merge(['name'=>'', 'artist'=>'', 'url'=>'', 'pic'=>'', 'lrc'=>''], $item);
+}
 
-        // 递归查找所有 json 文件
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator(__DIR__, RecursiveDirectoryIterator::SKIP_DOTS)
-        );
-        foreach ($iterator as $file) {
-            if ($file->isFile() && $file->getExtension() === 'json') {
-                // 计算相对于 api.php 所在目录的相对路径
-                $relative_path = substr($file->getPathname(), strlen(__DIR__) + 1);
-                // 转换斜杠与反斜杠，确保 Windows 平台兼容
-                $relative_path = str_replace('\\', '/', $relative_path);
-                $api_url = $base_url . '?url=./' . urlencode($relative_path);
-                echo '<li><a href="' . htmlspecialchars($api_url) . '" class="file-link" target="_blank">./' . htmlspecialchars($relative_path) . '</a>&nbsp;<button class="copy-btn">复制</button></li>';
+if (isset($_GET['server'], $_GET['type'], $_GET['id'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    
+    $server = strtolower(trim($_GET['server']));
+    $type   = strtolower(trim($_GET['type']));
+    $id     = trim($_GET['id']);
+    
+    if ($server !== $configured_server) {
+        http_response_code(403);
+        echo json_encode(['error' => 'Invalid server. Use "' . $configured_server . '"'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+    
+    $base_url = getBaseUrl();
+    
+    switch ($type) {
+        case 'playlist':
+            $name = preg_replace('/[^\w\x{4e00}-\x{9fa5}\-\s]/u', '', $id);
+            $file = $playlist_dir . '/' . $name . '.json';
+            if (!file_exists($file) || !is_file($file)) {
+                http_response_code(404); echo json_encode(['error'=>'Playlist not found'], JSON_UNESCAPED_UNICODE); exit;
             }
-        }
-        ?>
-        </ul>
-        <div class="api-info">
-            <h4>API 使用方法：</h4>
-            <p>使用格式：<code><?php echo htmlspecialchars($base_url); ?>?url=相对于此文件的路径</code></p>
-            <p>例如：<code><?php echo htmlspecialchars($base_url); ?>?url=./playlist_config.json</code></p>
-            <p>或者：<code><?php echo htmlspecialchars($base_url); ?>?url=./list/playlist.json</code></p>
-        </div>
-    </div>
-    <script type="text/javascript">
-        document.addEventListener('DOMContentLoaded', function() {
-            // 获取所有复制按钮
-            const copyButtons = document.querySelectorAll('.copy-btn');
+            $playlist = json_decode(file_get_contents($file), true);
+            if (!is_array($playlist)) $playlist = [];
+            foreach ($playlist as &$item) normalizePaths($item, $base_url);
+            echo json_encode($playlist, JSON_UNESCAPED_UNICODE);
+            break;
             
-            // 为每个按钮添加点击事件
-            copyButtons.forEach(button => {
-                button.addEventListener('click', function() {
-                    // 获取对应的链接元素
-                    const link = this.parentElement.querySelector('.file-link');
-                    const url = link.href;
-                    
-                    // 使用Clipboard API复制URL
-                    navigator.clipboard.writeText(url)
-                        .then(() => {
-                            // 复制成功
-                            const originalText = this.innerHTML;
-                            this.innerHTML = '<i class="fas fa-check"></i> 复制成功';
-                            this.classList.add('copied');
-                            
-                            // 1秒后恢复按钮状态
-                            setTimeout(() => {
-                                this.innerHTML = originalText;
-                                this.classList.remove('copied');
-                            }, 1000);
-                        })
-                        .catch(err => {
-                            // 复制失败处理
-                            console.error('复制失败:', err);
-                            const originalText = this.innerHTML;
-                            this.innerHTML = '<i class="fas fa-times"></i> 复制失败';
-                            this.classList.add('copied');
-                            
-                            setTimeout(() => {
-                                this.innerHTML = originalText;
-                                this.classList.remove('copied');
-                            }, 1000);
+        case 'song':
+            $identifier = urldecode($id);
+            $all_songs = [];
+            foreach (glob($playlist_dir . '/*.json') as $f) {
+                $pl = json_decode(file_get_contents($f), true);
+                if (is_array($pl)) $all_songs = array_merge($all_songs, $pl);
+            }
+            
+            // 重名处理逻辑
+            $dedup_show_all = $settings['song_dedup_show_all'] ?? false;
+            if (!$dedup_show_all) {
+                $unique = []; $groups = [];
+                foreach ($all_songs as $song) {
+                    $key = trim($song['name'] ?: basename($song['url'] ?? 'unknown'));
+                    $groups[$key][] = $song;
+                }
+                foreach ($groups as $songs) {
+                    if (count($songs) === 1) {
+                        $unique[] = $songs[0];
+                    } else {
+                        // 规则：URL层级短者优先，相同则按字母 a-z
+                        usort($songs, function($a, $b) {
+                            $uA = $a['url'] ?? ''; $uB = $b['url'] ?? '';
+                            $dA = substr_count($uA, '/'); $dB = substr_count($uB, '/');
+                            if ($dA !== $dB) return $dA - $dB;
+                            return strcmp($uA, $uB);
                         });
-                });
-            });
-        });
-    </script>
-</body>
-</html>
-<?php
-    exit;
-}
-
-// 获取 url 参数。从这里开始是处理 JSON 响应的部分
-// 现在才设置 JSON 的内容类型
-header('Content-Type: application/json; charset=utf-8');
-
-$requested_file = $_GET['url'];
-// 安全过滤，防止路径遍历 (../ 等)
-// 使用 # 作为分隔符以避免与路径中的 / 冲突
-$requested_file = preg_replace('#\.\.\/|\.\.\\\|^\./#', '', $requested_file);
-
-if (empty($requested_file) || pathinfo($requested_file, PATHINFO_EXTENSION) !== 'json') {
-    http_response_code(400);
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode(['error' => 'Invalid or missing JSON file path'], JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
-// 构建完整文件路径
-$config_file = __DIR__ . '/' . $requested_file;
-
-// 检查文件是否存在且为 .json 文件
-if (!file_exists($config_file) || !is_file($config_file) || pathinfo($config_file, PATHINFO_EXTENSION) !== 'json') {
-    http_response_code(404);
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode(['error' => 'JSON file not found: ' . $requested_file], JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
-// 读取歌单配置
-$playlist = json_decode(file_get_contents($config_file), true);
-
-// 检查解码是否成功
-if ($playlist === null && json_last_error() !== JSON_ERROR_NONE) {
-    http_response_code(500);
-    header('Content-Type: application/json; charset=utf-8');
-    echo json_encode(['error' => 'Invalid JSON in file: ' . $requested_file . '. Error: ' . json_last_error_msg()], JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
-// 如果解码结果不是数组，返回空数组
-if (!is_array($playlist)) {
-    $playlist = [];
-}
-
-// 获取当前URL基础路径
-$protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
-$host = $_SERVER['HTTP_HOST'];
-$base_url = $protocol . '://' . $host . dirname($_SERVER['SCRIPT_NAME']);
-
-// 处理相对地址转绝对地址
-foreach ($playlist as &$item) {
-    if (isset($item['url']) && !preg_match('/^https?:\/\//', $item['url'])) {
-        $item['url'] = $base_url . '/' . ltrim($item['url'], './');
+                        $unique[] = $songs[0];
+                    }
+                }
+                $all_songs = $unique;
+            }
+            
+            $matched = null;
+            foreach ($all_songs as $song) {
+                if (isset($song['url']) && basename($song['url']) === $identifier) { $matched = $song; break; }
+            }
+            if (!$matched) {
+                foreach ($all_songs as $song) {
+                    if (isset($song['name']) && $song['name'] === $identifier) { $matched = $song; break; }
+                }
+            }
+            
+            if (!$matched) {
+                http_response_code(404); echo json_encode(['error'=>'Song not found'], JSON_UNESCAPED_UNICODE); exit;
+            }
+            
+            normalizePaths($matched, $base_url);
+            // 始终返回数组格式
+            echo json_encode([$matched], JSON_UNESCAPED_UNICODE);
+            break;
+            
+        case 'search':
+            echo json_encode([], JSON_UNESCAPED_UNICODE);
+            break;
+            
+        default:
+            http_response_code(400); echo json_encode(['error'=>'Unsupported type'], JSON_UNESCAPED_UNICODE);
     }
-    if (isset($item['pic']) && !preg_match('/^https?:\/\//', $item['pic'])) {
-        $item['pic'] = $base_url . '/' . ltrim($item['pic'], './');
-    }
-    if (isset($item['lrc']) && !preg_match('/^https?:\/\//', $item['lrc'])) {
-        $item['lrc'] = $base_url . '/' . ltrim($item['lrc'], './');
-    }
+    exit;
 }
 
-// 输出处理后的歌单
-echo json_encode($playlist, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+if (isset($_GET['url'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    $requested = preg_replace('#\.\.\/|\.\.\\\|^\./#', '', $_GET['url']);
+    if (empty($requested) || pathinfo($requested, PATHINFO_EXTENSION) !== 'json') {
+        http_response_code(400); echo json_encode(['error'=>'Invalid JSON path'], JSON_UNESCAPED_UNICODE); exit;
+    }
+    $file = __DIR__ . '/' . $requested;
+    if (!file_exists($file) || !is_file($file)) {
+        http_response_code(404); echo json_encode(['error'=>'File not found'], JSON_UNESCAPED_UNICODE); exit;
+    }
+    $playlist = json_decode(file_get_contents($file), true);
+    if (!is_array($playlist)) $playlist = [];
+    $base_url = getBaseUrl();
+    foreach ($playlist as &$item) normalizePaths($item, $base_url);
+    echo json_encode($playlist, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+header('Content-Type: text/plain; charset=utf-8');
+echo "API is functioning properly.";
+/*
+echo "API Server: {$configured_server}\nMeting Format: ?server={$configured_server}&type=playlist\song&id=xxx\n\n";
+foreach (glob($playlist_dir . '/*.json') as $f) {
+    echo getBaseUrl() . "?server={$configured_server}&type=playlist&id=" . urlencode(pathinfo($f, PATHINFO_FILENAME)) . "\n";
+}
+    */
 ?>

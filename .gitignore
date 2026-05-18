@@ -4,3 +4,4 @@
 !/playlists/.gitkeep
 /test/*
 !/test/.gitkeep
+/settings.json
