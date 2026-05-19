@@ -130,7 +130,7 @@ if (isset($_GET['url'])) {
 }
 
 header('Content-Type: text/plain; charset=utf-8');
-echo "API is functioning properly.";
+echo "API is functioning properly.\n\nIf you wish to deploy it by yourself, please visit Repository 【https://github.com/lumesyleo/lite-music-manager】";
 /*
 echo "API Server: {$configured_server}\nMeting Format: ?server={$configured_server}&type=playlist\song&id=xxx\n\n";
 foreach (glob($playlist_dir . '/*.json') as $f) {

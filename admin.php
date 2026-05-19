@@ -367,6 +367,7 @@ foreach ($playlist_files as $f) {
 						<li class="nav-item"><a class="nav-link px-2 <?php echo $active_tab==='files'?'active bg-primary text-white rounded':''?>" href="?tab=files">文件管理</a></li>
 						<li class="nav-item"><a class="nav-link px-2 <?php echo $active_tab==='api'?'active bg-primary text-white rounded':''?>" href="?tab=api">API 预览</a></li>
 						<li class="nav-item"><a class="nav-link px-2 <?php echo $active_tab==='settings'?'active bg-primary text-white rounded':''?>" href="?tab=settings">系统设置</a></li>
+                        <li class="nav-item"><a class="nav-link px-2" href="https://github.com/lumesyleo/lite-music-manager" target="_blank">项目仓库</a></li>
 					</ul><a href="?logout" class="btn btn-outline-light btn-sm ms-lg-auto mt-2 mt-lg-0">退出登录</a>
 				</div>
 			</div>
